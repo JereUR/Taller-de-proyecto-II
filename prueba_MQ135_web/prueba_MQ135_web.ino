@@ -1,5 +1,6 @@
 #include <WiFi.h>
-#include "MQ135.h"
+
+#define MQ135 36
 
 //------------------Servidor Web en puerto 80---------------------
 
@@ -48,7 +49,7 @@ String paginaFin = "</tr>"
 //---------------------------SETUP--------------------------------
 void setup() {
   Serial.begin(115200);
-  Serial.println("");
+  pinMode(MQ135, INPUT);
   // Conexión WIFI
   WiFi.begin(ssid, password);
   Serial.print("Connecting");
@@ -73,11 +74,8 @@ void setup() {
 //----------------------------LOOP----------------------------------
 
 void loop(){
-  MQ135 mq135 = MQ135(A0);
-  co2MQ135 = mq135.getPPM();
-  Serial.print("CO2: ");  
-  Serial.print(co2MQ135);
-  Serial.println("  ppm");
+  co2MQ135 = analogRead(MQ135);
+  Serial.println("Co2: " + String(co2MQ135) + " ppm");
   delay(1000);
   
   WiFiClient client = server.available();   // Escucha a los clientes entrantes
@@ -128,6 +126,5 @@ void loop(){
     // Cierro conexión
     client.stop();
     //Serial.println("Client disconnected.");
-    Serial.println("");
   }
 }
