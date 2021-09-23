@@ -1,5 +1,5 @@
 # Taller-de-proyecto-II
-Proyecto basado en lectura de sensores de CO2
+Proyecto basado en lectura de sensores de CO2 por medio de ESP32 junto con sitio web con host local
 
 Sensores:
   - CSS811.
