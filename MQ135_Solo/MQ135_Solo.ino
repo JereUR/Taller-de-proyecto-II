@@ -1,16 +1,14 @@
-#include "MQ135.h"
+#define MQ135 36
 
 int co2MQ135;
 
 void setup() {
   Serial.begin(115200);
+  pinMode(MQ135, INPUT);
 }
 
 void loop() {
-  MQ135 mq135 = MQ135(A0);
-  co2MQ135 = mq135.getPPM();
-  Serial.print("CO2: ");  
-  Serial.print(co2MQ135);
-  Serial.println("  ppm");
-  delay(2000);
+  co2MQ135 = analogRead(MQ135);
+  Serial.println("Co2: " + String(co2MQ135) + " ppm");
+  delay(1000);
 }
