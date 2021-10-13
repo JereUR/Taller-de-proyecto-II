@@ -1,4 +1,5 @@
-#include <WiFi.h>
+#include <TimeLib.h>         //Temporizador
+#include <WiFi.h>            //Sitio web
 #include "Adafruit_CCS811.h" //CSS811
 #include <SoftwareSerial.h>  //MHZ19
 #include <MHZ19.h>           //MHZ19
@@ -9,9 +10,11 @@
 #define MQ2 34               //MQ2
 #define BUZZER_PIN 19        //Buzzer
 
-Adafruit_CCS811 ccs;
+Adafruit_CCS811 ccs;              //CSS811
 SoftwareSerial mySerial(RX, TX);  //MHZ19
 MHZ19 mhz;                        //MHZ19
+time_t fechaInicio;               //Temporizador
+time_t fechaActual;               //Temporizador
 
 //------------------Servidor Web en puerto 80---------------------
 
@@ -23,15 +26,17 @@ const char* ssid     = "VirusDetected 2.4Ghz";
 const char* password = "losveguita";
 
 //---------------------VARIABLES GLOBALES-------------------------
-unsigned long timeElapse = 0;
+int ticks = 0;
+bool buzzerEnable = false;
 int contconexion = 0;
 int co2CSS, co2Z19, co2MQ135, co2MQ2;
-int buzzerlvl1, buzzerlvl2;
+int buzzerlvl1, buzzerlvl2, hours, minutes, seconds;
 String values = "";                 //Valores para html
 String valueCSS = "";
 String valueZ19 = "";
 String valueMQ135 = "";
 String valueMQ2 = "";
+String timer = "";
 String header; // Variable para guardar el HTTP request
 
 //------------------------CODIGO HTML------------------------------
@@ -55,18 +60,17 @@ String paginaInicio = "<!DOCTYPE html>"
 "</tr>"
 "<tr>";
 
-String paginaFin = "</tr>"
-"</table>"
-"</center>"
+String paginaFin = "</center>"
 "</body>"
 "</html>";
 
 //---------------------------SETUP--------------------------------
 void setup() {
-  
+
+  fechaInicio = now();
   Serial.begin(115200);
   //---------------------------- CSS811 ----------------------------
-  Serial.println("Calibrating CSS811..");
+  Serial.println("Calibrating CSS811...");
   if(!ccs.begin()){
     Serial.println("Failed to start sensor! Please check your wiring.");
     while(1);
@@ -76,20 +80,24 @@ void setup() {
   ccs.setTempOffset(temp - 25.0);
 
   //---------------------------- MHZ19 ----------------------------
+  mySerial.begin(9600); 
   mhz.begin(mySerial);
-  mhz.autoCalibration(false);     // make sure auto calibration is off
-  Serial.println("Calibrating MHZ19B..");
+  mhz.autoCalibration(false);     
+  Serial.println("Calibrating MHZ19B...");
   mhz.calibrate();
 
   //---------------------------- MQ135 ----------------------------
+  Serial.println("Calibrating MQ135...");
   pinMode(MQ135, INPUT);
   
   //---------------------------- MQ2 ----------------------------
+  Serial.println("Calibrating MQ2...");
   pinMode(MQ2, INPUT);
 
   //---------------------------- Buzzer ----------------------------
+  Serial.println("Calibrating Buzzer...");
   pinMode(BUZZER_PIN, OUTPUT);
-  
+
   //---------------------------- Conexión WIFI ----------------------------
   WiFi.begin(ssid, password);
   Serial.print("Connecting");
@@ -125,32 +133,59 @@ void loop(){
       co2CSS = ccs.geteCO2();
       Serial.println("CO2 CSS811: " + String(co2CSS) + " ppm");
     }
-    else{
-      Serial.println("ERROR!");
-      while(1);
-    }
+    /*Queda deshabilitado el buzzer para este sensor
+    if(co2CSS >= 500 and co2CSS <= 1000){
+      buzzerlvl1++;
+    } else if (co2CSS > 1000){
+      buzzerlvl2++;
+    }*/
   }
 
   //---------------------------- Lectura MHZ19 ----------------------------
   co2Z19 = mhz.getCO2();        
   if(mhz.errorCode == RESULT_OK){              // Si todo salio bien...
-    Serial.print("CO2 MHZ19: " + String(co2Z19) + " ppm");
+    Serial.println("CO2 MHZ19: " + String(co2Z19) + " ppm");
+    /*Queda deshabilitado el buzzer para este sensor
+    if(co2Z19 >= 500 and co2Z19 <= 1000){
+      buzzerlvl1++;
+    } else if (co2Z19 > 1000){
+      buzzerlvl2++;
+    }*/
   } else{
-    Serial.println("Failed to recieve CO2 value - Error");
+    Serial.println("Failed to recieve CO2 MH-Z19B");
     Serial.print("Response Code: ");
-    Serial.println(mhz.errorCode);          // Codigo de error.
+    Serial.println(mhz.errorCode);          
   }  
   
   //---------------------------- Lectura MQ2 ----------------------------
   co2MQ2 = analogRead(MQ2);
   Serial.println("Co2 MQ2: " + String(co2MQ2) + " ppm");
+  if(co2MQ2 >= 500 and co2MQ2 <= 1000){
+      buzzerlvl1++;
+  } else if (co2MQ2 > 1000){
+      buzzerlvl2++;
+  }
 
   //---------------------------- Lectura MQ135 ----------------------------
   co2MQ135 = analogRead(MQ135);
-  Serial.println("Co2: " + String(co2MQ135) + " ppm");
+  Serial.println("Co2 MQ135: " + String(co2MQ135) + " ppm");
+  if(co2MQ135 >= 500 and co2MQ135 <= 1000){
+      buzzerlvl1++;
+  } else if (co2MQ135 > 1000){
+      buzzerlvl2++;
+  }
 
-  //---------------------------- Delay para sensores ----------------------------
+  //---------------------------- Delay para sensores y contador de ticks para buzzer ----------------------------
   delay(1000);
+  ticks++;
+  if(ticks >= 600){       //Cuenta 10 minutos
+    buzzerEnable = true;
+  }
+  //---------------------------- Actualizo timer ----------------------------
+  fechaActual = now();
+  hours = hour(fechaActual) - hour(fechaInicio);
+  minutes = minute(fechaActual) - minute(fechaInicio);
+  seconds = second(fechaActual) - second(fechaInicio);
   
   //---------------------------- Web ----------------------------
   WiFiClient client = server.available();   // Escucha a los clientes entrantes
@@ -175,14 +210,12 @@ void loop(){
             values = ""; //Reseteo values de sensores     
             //---------------------------- Muestro página web ----------------------------
             //---------------------------- CSS811 values ----------------------------
-            
+     
             if(co2CSS < 500){
               valueCSS = "<td WIDTH=\"200\"; ALIGN = \"center\"> <h4 style=\"color:#30C90F;\"</h4>" + String(co2CSS) + " ppm    <u> Óptimo </u>" + "</td>"; 
             } else if(co2CSS >= 500 and co2CSS <= 1000){
-              buzzerlvl1++;
               valueCSS = "<td WIDTH=\"200\"; ALIGN = \"center\"> <h4 style=\"color:#F4D40C;\"</h4>" + String(co2CSS) + " ppm    <u> Precaución </u>" + "</td>";
             } else{
-              buzzerlvl2++;
               valueCSS = "<td WIDTH=\"200\"; ALIGN = \"center\"> <h4 style=\"color:#FF3733;\"</h4>" + String(co2CSS) + " ppm    <u> Peligro </u>" + "</td>";
             }
             
@@ -191,10 +224,8 @@ void loop(){
             if(co2Z19 < 500){
               valueZ19 = "<td WIDTH=\"200\"; ALIGN = \"center\"> <h4 style=\"color:#30C90F;\"</h4>" + String(co2Z19) + " ppm    <u> Óptimo </u>" + "</td>"; 
             } else if(co2Z19 >= 500 and co2Z19 <= 1000){
-              buzzerlvl1++;
               valueZ19 = "<td WIDTH=\"200\"; ALIGN = \"center\"> <h4 style=\"color:#F4D40C;\"</h4>" + String(co2Z19) + " ppm    <u> Precaución </u>" + "</td>";
             } else{
-              buzzerlvl2++;
               valueZ19 = "<td WIDTH=\"200\"; ALIGN = \"center\"> <h4 style=\"color:#FF3733;\"</h4>" + String(co2Z19) + " ppm    <u> Peligro </u>" + "</td>";
             }
 
@@ -203,61 +234,28 @@ void loop(){
             if(co2MQ135 < 500){
               valueMQ135 = "<td WIDTH=\"200\"; ALIGN = \"center\"> <h4 style=\"color:#30C90F;\"</h4>" + String(co2MQ135) + " ppm    <u> Óptimo </u>" + "</td>"; 
             } else if(co2MQ135 >= 500 and co2MQ135 <= 1000){
-              buzzerlvl1++;
               valueMQ135 = "<td WIDTH=\"200\"; ALIGN = \"center\"> <h4 style=\"color:#F4D40C;\"</h4>" + String(co2MQ135) + " ppm    <u> Precaución </u>" + "</td>";
             } else{
-              buzzerlvl2++;
               valueMQ135 = "<td WIDTH=\"200\"; ALIGN = \"center\"> <h4 style=\"color:#FF3733;\"</h4>" + String(co2MQ135) + " ppm    <u> Peligro </u>" + "</td>";
             }
 
             //---------------------------- MQ2 values ----------------------------
-
+            
             if(co2MQ2 < 500){
               valueMQ2 = "<td WIDTH=\"200\"; ALIGN = \"center\"> <h4 style=\"color:#30C90F;\"</h4>" + String(co2MQ2) + " ppm    <u> Óptimo </u>" + "</td>"; 
             } else if(co2MQ2 >= 500 and co2MQ2 <= 1000){
-              buzzerlvl1++;
               valueMQ2 = "<td WIDTH=\"200\"; ALIGN = \"center\"> <h4 style=\"color:#F4D40C;\"</h4>" + String(co2MQ2) + " ppm    <u> Precaución </u>" + "</td>";
             } else{
-              buzzerlvl2;
               valueMQ2 = "<td WIDTH=\"200\"; ALIGN = \"center\"> <h4 style=\"color:#FF3733;\"</h4>" + String(co2MQ2) + " ppm    <u> Peligro </u>" + "</td>";
             }
 
             //---------------------------- final values ----------------------------
             
             values = valueCSS + valueZ19 + valueMQ135 + valueMQ2;
-            client.println(paginaInicio + values + paginaFin);
-
-            //---------------------------- Buzzer ----------------------------
-
-            if(buzzerlvl1 > buzzerlvl2){
-              digitalWrite(BUZZER_PIN, HIGH); // Enciendo nivel 1 (Dos pitidos).
-              delay(200);
-              digitalWrite(BUZZER_PIN, LOW);
-              delay(100);
-              digitalWrite(BUZZER_PIN, HIGH);
-              delay(200);
-              digitalWrite(BUZZER_PIN, LOW);
-            }else if(buzzerlvl2 > 0){
-              digitalWrite(BUZZER_PIN, HIGH); // Enciendo nivel 2 (Cinco pitidos).
-              delay(200);
-              digitalWrite(BUZZER_PIN, LOW);
-              delay(100);
-              digitalWrite(BUZZER_PIN, HIGH);
-              delay(200);
-              digitalWrite(BUZZER_PIN, LOW);
-              delay(100);
-              digitalWrite(BUZZER_PIN, HIGH);
-              delay(200);
-              digitalWrite(BUZZER_PIN, LOW);
-              delay(100);
-              digitalWrite(BUZZER_PIN, HIGH);
-              delay(200);
-              digitalWrite(BUZZER_PIN, LOW);
-              delay(100);
-              digitalWrite(BUZZER_PIN, HIGH);
-              delay(200);
-              digitalWrite(BUZZER_PIN, LOW);
-            }
+            timer = "</tr>"
+            "</table>"
+             "<h3 <b>  Tiempo transcurrido: " + String(hours) + ":" + String(minutes) + ":" + String(seconds) + "</b></h3>";
+            client.println(paginaInicio + values + timer + paginaFin);
             
             //---------------------------- final web ----------------------------
             // la respuesta HTTP temina con una linea en blanco
@@ -270,6 +268,26 @@ void loop(){
           currentLine += c;      // lo agrega al final de currentLine
         }
       }
+    }
+    //---------------------------- Buzzer ----------------------------
+    if(buzzerEnable){                   //Luego de 10 minutos se activa buzzer (Tiempo aproximado de estabilización de sensores)
+      if(buzzerlvl1 > buzzerlvl2){
+        digitalWrite(BUZZER_PIN, HIGH); // Enciendo nivel 1 (Un pitido largo).
+        delay(500);
+        digitalWrite(BUZZER_PIN, LOW);
+       }else if(buzzerlvl2 > 0){
+         digitalWrite(BUZZER_PIN, HIGH); // Enciendo nivel 2 (3 pitidos cortos).
+         delay(200);
+         digitalWrite(BUZZER_PIN, LOW);
+         delay(100);
+         digitalWrite(BUZZER_PIN, HIGH);
+         delay(200);
+         digitalWrite(BUZZER_PIN, LOW);
+         delay(100);
+         digitalWrite(BUZZER_PIN, HIGH);
+         delay(200);
+         digitalWrite(BUZZER_PIN, LOW);
+       }
     }
     // Limpio variable header
     header = "";
